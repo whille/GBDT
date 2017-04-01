@@ -80,7 +80,7 @@ def construct_decision_tree(dataset, remainedSet, targets, depth, leaf_nodes, ma
     if depth < max_depth:
         # todo 通过修改这里可以实现选择多少特征训练
         attributes = dataset.get_attributes()
-        mse = -1
+        min_mse = -1
         selectedAttribute = None
         conditionValue = None
         selectedLeftIdSet = []
@@ -105,13 +105,13 @@ def construct_decision_tree(dataset, remainedSet, targets, depth, leaf_nodes, ma
                 leftTargets = [targets[id] for id in leftIdSet]
                 rightTargets = [targets[id] for id in rightIdSet]
                 sum_mse = MSE(leftTargets)+MSE(rightTargets)
-                if mse < 0 or sum_mse < mse:
+                if min_mse < 0 or sum_mse < min_mse:
                     selectedAttribute = attribute
                     conditionValue = attrValue
-                    mse = sum_mse
+                    min_mse = sum_mse
                     selectedLeftIdSet = leftIdSet
                     selectedRightIdSet = rightIdSet
-        if not selectedAttribute or mse < 0:
+        if not selectedAttribute or min_mse < 0:
             raise ValueError("cannot determine the split attribute.")
         tree = Tree()
         tree.split_feature = selectedAttribute
