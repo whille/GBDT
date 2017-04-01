@@ -1,5 +1,4 @@
 # -*- coding:utf-8 -*-
-from math import log
 from random import sample
 
 
@@ -86,6 +85,7 @@ def construct_decision_tree(dataset, remainedSet, targets, depth, leaf_nodes, ma
         conditionValue = None
         selectedLeftIdSet = []
         selectedRightIdSet = []
+        # find best atttribute as slected
         for attribute in attributes:
             is_real_type = dataset.is_real_type_field(attribute)
             attrValues = dataset.get_distinct_valueset(attribute)

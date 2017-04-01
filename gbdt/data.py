@@ -9,7 +9,7 @@ class DataSet:
     def __init__(self, filename):  # just for csv data format
         line_cnt = 0
         self.instances = dict()
-        self.distinct_valueset = dict()  # just for real value type
+        self.distinct_valueset = dict()  # just for real value prediction
         for line in open(filename):
             if line == "\n":
                 continue

@@ -1,12 +1,12 @@
 # -*- coding:utf-8 -*-
-from datetime import datetime
 import abc
 from random import sample
 from math import exp, log
 from gbdt.tree import construct_decision_tree
 
 
-class RegressionLossFunction(metaclass=abc.ABCMeta):
+class ClassifyMethod(object):
+    __metaclass__=abc.ABCMeta
     def __init__(self, n_classes):
         self.K = n_classes
 
@@ -27,13 +27,13 @@ class RegressionLossFunction(metaclass=abc.ABCMeta):
         """更新叶子节点的返回值"""
 
 
-class LeastSquaresError(RegressionLossFunction):
+class Regression(ClassifyMethod):
     """用于回归的最小平方误差损失函数"""
     def __init__(self, n_classes):
         if n_classes != 1:
             raise ValueError("``n_classes`` must be 1 for regression but "
                              "was %r" % n_classes)
-        super(LeastSquaresError, self).__init__(n_classes)
+        super(Regression, self).__init__(n_classes)
 
     def compute_residual(self, dataset, subset, f):
         residual = {}
@@ -62,36 +62,15 @@ class LeastSquaresError(RegressionLossFunction):
         return sum1/len(idset)
 
 
-class ClassificationLossFunction(metaclass=abc.ABCMeta):
-    """分类损失函数的基类"""
-    def __init__(self, n_classes):
-        self.K = n_classes
-
-    @abc.abstractmethod
-    def compute_residual(self, dataset, subset, f):
-        """计算残差"""
-
-    @abc.abstractmethod
-    def update_f_value(self, f, tree, leaf_nodes, subset, dataset, learn_rate, label=None):
-        """更新F_{m-1}的值"""
-
-    @abc.abstractmethod
-    def initialize(self, f, dataset):
-        """初始化F_{0}的值"""
-
-    @abc.abstractmethod
-    def update_ternimal_regions(self, targets, idset):
-        """更新叶子节点的返回值"""
-
-
-class BinomialDeviance(ClassificationLossFunction):
+class BinClassify(ClassifyMethod):
     """二元分类的损失函数"""
     def __init__(self, n_classes):
         if n_classes != 2:
             raise ValueError("{0:s} requires 2 classes.".format(
                 self.__class__.__name__))
-        super(BinomialDeviance, self).__init__(1)
+        super(BinClassify, self).__init__(1)
 
+    # f: F_m-1()
     def compute_residual(self, dataset, subset, f):
         residual = {}
         for id in subset:
@@ -114,6 +93,10 @@ class BinomialDeviance(ClassificationLossFunction):
             f[id] = 0.0
 
     def update_ternimal_regions(self, targets, idset):
+        """
+        \gamma_jm: res
+        y_i: targets[id], label or value
+        """
         sum1 = sum([targets[id] for id in idset])
         if sum1 == 0:
             return sum1
@@ -121,14 +104,14 @@ class BinomialDeviance(ClassificationLossFunction):
         return sum1 / sum2
 
 
-class MultinomialDeviance(ClassificationLossFunction):
+class KClassify(ClassifyMethod):
     """多元分类的损失函数"""
     def __init__(self, n_classes, labelset):
         self.labelset = set([label for label in labelset])
         if n_classes < 3:
             raise ValueError("{0:s} requires more than 2 classes.".format(
                 self.__class__.__name__))
-        super(MultinomialDeviance, self).__init__(n_classes)
+        super(KClassify, self).__init__(n_classes)
 
     def compute_residual(self, dataset, subset, f):
         residual = {}
@@ -171,29 +154,29 @@ class MultinomialDeviance(ClassificationLossFunction):
 
 
 class GBDT:
-    def __init__(self, max_iter, sample_rate, learn_rate, max_depth, loss_type='multi-classification', split_points=0):
+    def __init__(self, max_iter, sample_rate, learn_rate, max_depth, method_name='multi-classification', split_points=0):
         self.max_iter = max_iter
         self.sample_rate = sample_rate
         self.learn_rate = learn_rate
         self.max_depth = max_depth
-        self.loss_type = loss_type
+        self.method_name = method_name
         self.split_points = split_points
-        self.loss = None
+        self.method = None    #loss function class
         self.trees = dict()
 
     def fit(self, dataset, train_data):
-        if self.loss_type == 'multi-classification':
+        if self.method_name == 'multi-classification':
             label_valueset = dataset.get_label_valueset()
-            self.loss = MultinomialDeviance(dataset.get_label_size(), label_valueset)
+            self.method = KClassify(dataset.get_label_size(), label_valueset)
             f = dict()  # 记录F_{m-1}的值
-            self.loss.initialize(f, dataset)
+            self.method.initialize(f, dataset)
             for iter in range(1, self.max_iter+1):
                 subset = train_data
-                if 0 < self.sample_rate < 1:
+                if 0 < self.sample_rate < 1:    # random sampling subset of training data, a SGD(Stochastic) method
                     subset = sample(subset, int(len(subset)*self.sample_rate))
                 self.trees[iter] = dict()
                 # 用损失函数的负梯度作为回归问题提升树的残差近似值
-                residual = self.loss.compute_residual(dataset, subset, f)
+                residual = self.method.compute_residual(dataset, subset, f)
                 for label in label_valueset:
                     # 挂在叶子节点下的各种样本,只有到迭代的max-depth才会使用
                     # 存放的各个叶子节点，注意叶子节点存放的是各个条件下的样本集点
@@ -202,48 +185,44 @@ class GBDT:
                     for id in subset:
                         targets[id] = residual[id][label]
                     # 对某一个具体的label-K分类，选择max-depth个特征构造决策树
-                    tree = construct_decision_tree(dataset, subset, targets, 0, leaf_nodes, self.max_depth, self.loss, self.split_points)
+                    tree = construct_decision_tree(dataset, subset, targets, 0, leaf_nodes, self.max_depth, self.method, self.split_points)
                     self.trees[iter][label] = tree
-                    self.loss.update_f_value(f, tree, leaf_nodes, subset, dataset, self.learn_rate, label)
+                    self.method.update_f_value(f, tree, leaf_nodes, subset, dataset, self.learn_rate, label)
                 train_loss = self.compute_loss(dataset, train_data, f)
                 print("iter%d : average train_loss=%f" % (iter, train_loss))
 
         else:
-            if self.loss_type == 'binary-classification':
-                self.loss = BinomialDeviance(n_classes=dataset.get_label_size())
-            elif self.loss_type == 'regression':
-                self.loss = LeastSquaresError(n_classes=1)
+            if self.method_name == 'binary-classification':
+                self.method = BinClassify(n_classes=dataset.get_label_size())
+            elif self.method_name == 'regression':
+                self.method = Regression(n_classes=1)
 
             f = dict()  # 记录F_{m-1}的值
-            self.loss.initialize(f, dataset)
+            self.method.initialize(f, dataset)
             for iter in range(1, self.max_iter+1):
                 subset = train_data
                 if 0 < self.sample_rate < 1:
                     subset = sample(subset, int(len(subset)*self.sample_rate))
                 # 用损失函数的负梯度作为回归问题提升树的残差近似值
-                residual = self.loss.compute_residual(dataset, subset, f)
+                residual = self.method.compute_residual(dataset, subset, f)
                 leaf_nodes = []
                 targets = residual
-                tree = construct_decision_tree(dataset, subset, targets, 0, leaf_nodes, self.max_depth, self.loss, self.split_points)
+                tree = construct_decision_tree(dataset, subset, targets, 0, leaf_nodes, self.max_depth, self.method, self.split_points)
                 self.trees[iter] = tree
-                self.loss.update_f_value(f, tree, leaf_nodes, subset, dataset, self.learn_rate)
-                if isinstance(self.loss, RegressionLossFunction):
-                    # todo 判断回归的效果
-                    pass
-                else:
-                    train_loss = self.compute_loss(dataset, train_data, f)
-                    print("iter%d : train loss=%f" % (iter,train_loss))
+                self.method.update_f_value(f, tree, leaf_nodes, subset, dataset, self.learn_rate)
+                train_loss = self.compute_loss(dataset, train_data, f)
+                print("iter%d : train loss=%f" % (iter,train_loss))
 
     def compute_loss(self, dataset, subset, f):
         loss = 0.0
-        if self.loss.K == 1:
+        if self.method.K == 1:
             for id in dataset.get_instances_idset():
                 y_i = dataset.get_instance(id)['label']
                 f_value = f[id]
                 p_1 = 1/(1+exp(-2*f_value))
                 try:
                     loss -= ((1+y_i)*log(p_1)/2) + ((1-y_i)*log(1-p_1)/2)
-                except ValueError as e:
+                except ValueError:
                     print(y_i, p_1)
         else:
             for id in dataset.get_instances_idset():
@@ -261,17 +240,17 @@ class GBDT:
 
     def compute_instance_f_value(self, instance):
         """计算样本的f值"""
-        if self.loss.K == 1:
+        if self.method.K == 1:
             f_value = 0.0
             for iter in self.trees:
                 f_value += self.learn_rate * iter.get_predict_value(instance)
         else:
             f_value = dict()
-            for label in self.loss.labelset:
+            for label in self.method.labelset:
                 f_value[label] = 0.0
             for iter in self.trees:
                 # 对于多分类问题，为每个类别构造一颗回归树
-                for label in self.loss.labelset:
+                for label in self.method.labelset:
                     tree = self.trees[iter][label]
                     f_value[label] += self.learn_rate*tree.get_predict_value(instance)
         return f_value
@@ -285,9 +264,7 @@ class GBDT:
 
     def predict_prob(self, instance):
         """为了统一二元分类和多元分类，返回属于每个类别的概率"""
-        if isinstance(self.loss, RegressionLossFunction):
-            raise RuntimeError('regression problem can not predict prob ')
-        if self.loss.K == 1:
+        if self.method.K == 1:
             f_value = self.compute_instance_f_value(instance)
             probs = dict()
             probs['+1'] = 1/(1+exp(-2*f_value))
@@ -307,7 +284,7 @@ class GBDT:
     def predict_label(self, instance):
         """预测标签"""
         predict_label = None
-        if isinstance(self.loss, BinomialDeviance):
+        if isinstance(self.method, BinClassify):
             probs = self.predict_prob(instance)
             predict_label = 1 if probs[1] >= probs[-1] else -1
         else:
