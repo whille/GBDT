@@ -25,9 +25,23 @@ iter20 : train loss=0.005610
 """
 from gbdt.data import DataSet
 from gbdt.model import GBDT
+from random import sample
+
+def evaluate(gbdt, subset, datas):
+    c = 0
+    for i in subset:
+        y  = datas.get_instance(i)
+        f = int(gbdt.predict_label(y))
+        label = int(y['label'])
+        if label != f:
+            c += 1
+    print 'error rate:', c*1.0 /len(subset)
+
 
 if __name__ == '__main__':
-    data_file = './data/credit.data.csv'
-    dateset = DataSet(data_file)
+    datas = DataSet('./data/credit.data.csv')
     gbdt = GBDT(max_iter=20, sample_rate=0.8, learn_rate=0.5, max_depth=7, method_name='binary-classification')
-    gbdt.fit(dateset, dateset.get_instances_idset())
+    ids = datas.get_ids()
+    subset = sample(ids, int(len(ids)*0.2))
+    gbdt.fit(datas, ids)
+    evaluate(gbdt, subset, datas)

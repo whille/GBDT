@@ -11,20 +11,22 @@ class ClassifyMethod(object):
         self.K = n_classes
 
     @abc.abstractmethod
-    def compute_residual(self, dataset, subset, f):
+    def compute_residual(self, dataset, subset, F):
         """计算残差"""
 
     @abc.abstractmethod
-    def update_f_value(self, f, tree, leaf_nodes, subset, dataset, learn_rate, label=None):
+    def update_f_value(self, F, tree, leaf_nodes, subset, dataset, learn_rate, label=None):
         """更新F_{m-1}的值"""
 
     @abc.abstractmethod
-    def initialize(self, f, dataset):
+    def initialize(self, F, dataset):
         """初始化F_{0}的值"""
 
     @abc.abstractmethod
     def update_ternimal_regions(self, targets, idset):
-        """更新叶子节点的返回值"""
+        """更新叶子节点的返回值 \gamma_jm
+        targets[id]: y_i, label or value
+        """
 
 
 class Regression(ClassifyMethod):
@@ -35,27 +37,27 @@ class Regression(ClassifyMethod):
                              "was %r" % n_classes)
         super(Regression, self).__init__(n_classes)
 
-    def compute_residual(self, dataset, subset, f):
+    def compute_residual(self, dataset, subset, F):
         residual = {}
         for id in subset:
             y_i = dataset.get_instance(id)['label']
-            residual[id] = y_i - f[id]
+            residual[id] = y_i - F[id]
         return residual
 
-    def update_f_value(self, f, tree, leaf_nodes, subset, dataset, learn_rate, label=None):
-        data_idset = set(dataset.get_instances_idset())
+    def update_f_value(self, F, tree, leaf_nodes, subset, dataset, learn_rate, label=None):
+        data_idset = set(dataset.get_ids())
         subset = set(subset)
         for node in leaf_nodes:
             for id in node.get_idset():
-                f[id] += learn_rate*node.get_predict_value()
+                F[id] += learn_rate*node.get_predict_value()
         for id in data_idset-subset:
-            f[id] += learn_rate*tree.get_predict_value(dataset.get_instance(id))
+            F[id] += learn_rate*tree.get_predict_value(dataset.get_instance(id))
 
-    def initialize(self, f, dataset):
+    def initialize(self, F, dataset):
         """初始化F0，我们可以用训练样本的所有值的平均值来初始化，为了方便，这里初始化为0.0"""
-        ids = dataset.get_instances_idset()
+        ids = dataset.get_ids()
         for id in ids:
-            f[id] = 0.0
+            F[id] = 0.0
 
     def update_ternimal_regions(self, targets, idset):
         sum1 = sum([targets[id] for id in idset])
@@ -63,40 +65,36 @@ class Regression(ClassifyMethod):
 
 
 class BinClassify(ClassifyMethod):
-    """二元分类的损失函数"""
+    """二元分类"""
     def __init__(self, n_classes):
         if n_classes != 2:
             raise ValueError("{0:s} requires 2 classes.".format(
                 self.__class__.__name__))
         super(BinClassify, self).__init__(1)
 
-    # f: F_m-1()
-    def compute_residual(self, dataset, subset, f):
+    # F: F_m-1()
+    def compute_residual(self, dataset, subset, F):
         residual = {}
         for id in subset:
             y_i = dataset.get_instance(id)['label']
-            residual[id] = 2.0*y_i/(1+exp(2*y_i*f[id]))
+            residual[id] = 2.0*y_i/(1+exp(2*y_i*F[id]))
         return residual
 
-    def update_f_value(self, f, tree, leaf_nodes, subset, dataset, learn_rate, label=None):
-        data_idset = set(dataset.get_instances_idset())
+    def update_f_value(self, F, tree, leaf_nodes, subset, dataset, learn_rate, label=None):
+        data_idset = set(dataset.get_ids())
         subset = set(subset)
         for node in leaf_nodes:
             for id in node.get_idset():
-                f[id] += learn_rate*node.get_predict_value()
+                F[id] += learn_rate*node.get_predict_value()
         for id in data_idset-subset:
-            f[id] += learn_rate*tree.get_predict_value(dataset.get_instance(id))
+            F[id] += learn_rate*tree.get_predict_value(dataset.get_instance(id))
 
-    def initialize(self, f, dataset):
-        ids = dataset.get_instances_idset()
+    def initialize(self, F, dataset):
+        ids = dataset.get_ids()
         for id in ids:
-            f[id] = 0.0
+            F[id] = 0.0
 
     def update_ternimal_regions(self, targets, idset):
-        """
-        \gamma_jm: res
-        y_i: targets[id], label or value
-        """
         sum1 = sum([targets[id] for id in idset])
         if sum1 == 0:
             return sum1
@@ -108,42 +106,43 @@ class KClassify(ClassifyMethod):
     """多元分类的损失函数"""
     def __init__(self, n_classes, labelset):
         self.labelset = set([label for label in labelset])
-        if n_classes < 3:
-            raise ValueError("{0:s} requires more than 2 classes.".format(
+        if n_classes < 2:
+            raise ValueError("{0:s} requires more than 1 classes.".format(
                 self.__class__.__name__))
         super(KClassify, self).__init__(n_classes)
 
-    def compute_residual(self, dataset, subset, f):
+    def compute_residual(self, dataset, subset, F):
         residual = {}
-        label_valueset = dataset.get_label_valueset()
+        label_set = dataset.get_label_set()
         for id in subset:
             residual[id] = {}
-            p_sum = sum([exp(f[id][x]) for x in label_valueset])
+            p_sum = sum([exp(F[id][x]) for x in label_set])
             # 对于同一样本在不同类别的残差，需要在同一次迭代中更新在不同类别的残差
-            for label in label_valueset:
-                p = exp(f[id][label])/p_sum
-                y = 0.0
+            for label in label_set:
+                p = exp(F[id][label])/p_sum
                 if dataset.get_instance(id)["label"] == label:
                     y = 1.0
+                else:
+                    y = 0.0
                 residual[id][label] = y-p
         return residual
 
-    def update_f_value(self, f, tree, leaf_nodes, subset, dataset, learn_rate, label=None):
-        data_idset = set(dataset.get_instances_idset())
+    def update_f_value(self, F, tree, leaf_nodes, subset, dataset, learn_rate, label=None):
+        data_idset = set(dataset.get_ids())
         subset = set(subset)
         for node in leaf_nodes:
             for id in node.get_idset():
-                f[id][label] += learn_rate*node.get_predict_value()
+                F[id][label] += learn_rate*node.get_predict_value()
         # 更新OOB的样本
         for id in data_idset-subset:
-            f[id][label] += learn_rate*tree.get_predict_value(dataset.get_instance(id))
+            F[id][label] += learn_rate*tree.get_predict_value(dataset.get_instance(id))
 
-    def initialize(self, f, dataset):
-        ids = dataset.get_instances_idset()
+    def initialize(self, F, dataset):
+        ids = dataset.get_ids()
         for id in ids:
-            f[id] = dict()
-            for label in dataset.get_label_valueset():
-                f[id][label] = 0.0
+            F[id] = dict()
+            for label in dataset.get_label_set():
+                F[id][label] = 0.0
 
     def update_ternimal_regions(self, targets, idset):
         sum1 = sum([targets[id] for id in idset])
@@ -161,23 +160,23 @@ class GBDT:
         self.max_depth = max_depth
         self.method_name = method_name
         self.split_points = split_points
-        self.method = None    #loss function class
-        self.trees = dict()
+        self.method = None
+        self.Mtrees = dict()    # M weak trees
 
     def fit(self, dataset, train_data):
         if self.method_name == 'multi-classification':
-            label_valueset = dataset.get_label_valueset()
-            self.method = KClassify(dataset.get_label_size(), label_valueset)
-            f = dict()  # 记录F_{m-1}的值
-            self.method.initialize(f, dataset)
-            for iter in range(1, self.max_iter+1):
+            label_set = dataset.get_label_set()
+            self.method = KClassify(dataset.get_label_size(), label_set)
+            F = dict()  # 记录F_{m-1}的值
+            self.method.initialize(F, dataset)
+            for iter in range(self.max_iter):
                 subset = train_data
                 if 0 < self.sample_rate < 1:    # random sampling subset of training data, a SGD(Stochastic) method
                     subset = sample(subset, int(len(subset)*self.sample_rate))
-                self.trees[iter] = dict()
+                self.Mtrees[iter] = dict()
                 # 用损失函数的负梯度作为回归问题提升树的残差近似值
-                residual = self.method.compute_residual(dataset, subset, f)
-                for label in label_valueset:
+                residual = self.method.compute_residual(dataset, subset, F)
+                for label in label_set:
                     # 挂在叶子节点下的各种样本,只有到迭代的max-depth才会使用
                     # 存放的各个叶子节点，注意叶子节点存放的是各个条件下的样本集点
                     leaf_nodes = []
@@ -186,9 +185,9 @@ class GBDT:
                         targets[id] = residual[id][label]
                     # 对某一个具体的label-K分类，选择max-depth个特征构造决策树
                     tree = construct_decision_tree(dataset, subset, targets, 0, leaf_nodes, self.max_depth, self.method, self.split_points)
-                    self.trees[iter][label] = tree
-                    self.method.update_f_value(f, tree, leaf_nodes, subset, dataset, self.learn_rate, label)
-                train_loss = self.compute_loss(dataset, train_data, f)
+                    self.Mtrees[iter][label] = tree
+                    self.method.update_f_value(F, tree, leaf_nodes, subset, dataset, self.learn_rate, label)
+                train_loss = self.compute_loss(dataset, train_data, F)
                 print("iter%d : average train_loss=%f" % (iter, train_loss))
 
         else:
@@ -197,37 +196,38 @@ class GBDT:
             elif self.method_name == 'regression':
                 self.method = Regression(n_classes=1)
 
-            f = dict()  # 记录F_{m-1}的值
-            self.method.initialize(f, dataset)
-            for iter in range(1, self.max_iter+1):
+            F = dict()  # 记录F_{m-1}的值
+            self.method.initialize(F, dataset)
+            for iter in range(self.max_iter):
                 subset = train_data
                 if 0 < self.sample_rate < 1:
                     subset = sample(subset, int(len(subset)*self.sample_rate))
                 # 用损失函数的负梯度作为回归问题提升树的残差近似值
-                residual = self.method.compute_residual(dataset, subset, f)
+                residual = self.method.compute_residual(dataset, subset, F)
                 leaf_nodes = []
                 targets = residual
                 tree = construct_decision_tree(dataset, subset, targets, 0, leaf_nodes, self.max_depth, self.method, self.split_points)
-                self.trees[iter] = tree
-                self.method.update_f_value(f, tree, leaf_nodes, subset, dataset, self.learn_rate)
-                train_loss = self.compute_loss(dataset, train_data, f)
+                self.Mtrees[iter] = tree
+                self.method.update_f_value(F, tree, leaf_nodes, subset, dataset, self.learn_rate)
+                train_loss = self.compute_loss(dataset, train_data, F)
                 print("iter%d : train loss=%f" % (iter,train_loss))
+                #print self.Mtrees[iter]
 
-    def compute_loss(self, dataset, subset, f):
+    def compute_loss(self, dataset, subset, F):
         loss = 0.0
-        if self.method.K == 1:
-            for id in dataset.get_instances_idset():
+        if self.method.K == 1:  # regressing
+            for id in dataset.get_ids():
                 y_i = dataset.get_instance(id)['label']
-                f_value = f[id]
+                f_value = F[id]
                 p_1 = 1/(1+exp(-2*f_value))
                 try:
                     loss -= ((1+y_i)*log(p_1)/2) + ((1-y_i)*log(1-p_1)/2)
                 except ValueError:
                     print(y_i, p_1)
         else:
-            for id in dataset.get_instances_idset():
+            for id in dataset.get_ids():
                 instance = dataset.get_instance(id)
-                f_values = f[id]
+                f_values = F[id]    #[0,0,1,0,...]
                 exp_values = {}
                 for label in f_values:
                     exp_values[label] = exp(f_values[label])
@@ -238,39 +238,39 @@ class GBDT:
                 loss -= log(probs[instance["label"]])
         return loss/dataset.size()
 
-    def compute_instance_f_value(self, instance):
-        """计算样本的f值"""
+    def compute_F(self, instance):
+        """计算样本的F值"""
         if self.method.K == 1:
             f_value = 0.0
-            for iter in self.trees:
-                f_value += self.learn_rate * iter.get_predict_value(instance)
+            for iter in self.Mtrees:
+                f_value += self.learn_rate * self.Mtrees[iter].get_predict_value(instance)
         else:
             f_value = dict()
             for label in self.method.labelset:
                 f_value[label] = 0.0
-            for iter in self.trees:
+            for iter in self.Mtrees:
                 # 对于多分类问题，为每个类别构造一颗回归树
                 for label in self.method.labelset:
-                    tree = self.trees[iter][label]
-                    f_value[label] += self.learn_rate*tree.get_predict_value(instance)
+                    tree = self.Mtrees[iter]
+                    f_value[label] += self.learn_rate * tree.get_predict_value(instance)
         return f_value
 
     def predict(self, instance):
         """
-        对于回归和二元分类返回f值
-        对于多元分类返回每一类的f值
+        对于回归和二元分类返回F值
+        对于多元分类返回每一类的F值
         """
-        return self.compute_instance_f_value(instance)
+        return self.compute_F(instance)
 
     def predict_prob(self, instance):
         """为了统一二元分类和多元分类，返回属于每个类别的概率"""
         if self.method.K == 1:
-            f_value = self.compute_instance_f_value(instance)
+            f_value = self.compute_F(instance)
             probs = dict()
             probs['+1'] = 1/(1+exp(-2*f_value))
             probs['-1'] = 1 - probs['+1']
         else:
-            f_value = self.compute_instance_f_value(instance)
+            f_value = self.compute_F(instance)
             exp_values = dict()
             for label in f_value:
                 exp_values[label] = exp(f_value[label])
@@ -283,14 +283,10 @@ class GBDT:
 
     def predict_label(self, instance):
         """预测标签"""
-        predict_label = None
-        if isinstance(self.method, BinClassify):
-            probs = self.predict_prob(instance)
-            predict_label = 1 if probs[1] >= probs[-1] else -1
-        else:
-            probs = self.predict_prob(instance)
-            # 选出K分类中，概率值最大的label
-            for label in probs:
-                if not predict_label or probs[label] > probs[predict_label]:
-                    predict_label = label
-        return predict_label
+        probs = self.predict_prob(instance)
+        max_v = [-1, -1]
+        for k,v in probs.iteritems():
+            if v > max_v[1]:
+                max_v = [k, v]
+        return max_v[0]
+

@@ -65,7 +65,7 @@ class DataSet:
             info = info+"#"*60+"\n"
         print(info)
 
-    def get_instances_idset(self):
+    def get_ids(self):
         """获取样本的id集合"""
         return set(self.instances.keys())
 
@@ -82,7 +82,7 @@ class DataSet:
         # 如果是数字类型则field_type[name]为空
         return len(self.field_type[name]) or len(self.distinct_valueset[name])
 
-    def get_label_valueset(self, name="label"):
+    def get_label_set(self, name="label"):
         """返回具体分离label"""
         if name not in self.field_names:
             raise ValueError(" there is no class label field!")

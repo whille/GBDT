@@ -24,11 +24,11 @@ class Tree:
             return self.leftTree.get_predict_value(instance)
         return self.rightTree.get_predict_value(instance)
 
-    def describe(self, addtion_info=""):
+    def __str__(self, addtion_info=""):
         if not self.leftTree or not self.rightTree:
-            return self.leafNode.describe()
-        leftInfo = self.leftTree.describe()
-        rightInfo = self.rightTree.describe()
+            return self.leafNode.__str__()
+        leftInfo = self.leftTree.__str__()
+        rightInfo = self.rightTree.__str__()
         info = addtion_info+"{split_feature:"+str(self.split_feature)+",split_value:"+str(self.conditionValue)+"[left_tree:"+leftInfo+",right_tree:"+rightInfo+"]}"
         return info
 
@@ -38,7 +38,7 @@ class LeafNode:
         self.idset = idset
         self.predictValue = None
 
-    def describe(self):
+    def __str__(self):
         return "{LeafNode:"+str(self.predictValue)+"}"
 
     def get_idset(self):
@@ -47,8 +47,8 @@ class LeafNode:
     def get_predict_value(self):
         return self.predictValue
 
-    def update_predict_value(self, targets, loss):
-        self.predictValue = loss.update_ternimal_regions(targets, self.idset)
+    def update_predict_value(self, targets, method):
+        self.predictValue = method.update_ternimal_regions(targets, self.idset)
 
 
 def MSE(values):
@@ -76,7 +76,7 @@ def FriedmanMSE(left_values, right_values):
             (weighted_n_left + weighted_n_right))
 
 
-def construct_decision_tree(dataset, remainedSet, targets, depth, leaf_nodes, max_depth, loss, criterion='MSE', split_points=0):
+def construct_decision_tree(dataset, remainedSet, targets, depth, leaf_nodes, max_depth, method, criterion='MSE', split_points=0):
     if depth < max_depth:
         # todo 通过修改这里可以实现选择多少特征训练
         attributes = dataset.get_attributes()
@@ -117,12 +117,12 @@ def construct_decision_tree(dataset, remainedSet, targets, depth, leaf_nodes, ma
         tree.split_feature = selectedAttribute
         tree.real_value_feature = dataset.is_real_type_field(selectedAttribute)
         tree.conditionValue = conditionValue
-        tree.leftTree = construct_decision_tree(dataset, selectedLeftIdSet, targets, depth+1, leaf_nodes, max_depth, loss)
-        tree.rightTree = construct_decision_tree(dataset, selectedRightIdSet, targets, depth+1, leaf_nodes, max_depth, loss)
+        tree.leftTree = construct_decision_tree(dataset, selectedLeftIdSet, targets, depth+1, leaf_nodes, max_depth, method)
+        tree.rightTree = construct_decision_tree(dataset, selectedRightIdSet, targets, depth+1, leaf_nodes, max_depth, method)
         return tree
     else:  # 是叶子节点
         node = LeafNode(remainedSet)
-        node.update_predict_value(targets, loss)
+        node.update_predict_value(targets, method)
         leaf_nodes.append(node)
         tree = Tree()
         tree.leafNode = node
