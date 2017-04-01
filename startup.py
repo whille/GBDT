@@ -40,8 +40,9 @@ def evaluate(gbdt, subset, datas):
 
 if __name__ == '__main__':
     datas = DataSet('./data/credit.data.csv')
+    #  datas = DataSet('./data/xor.csv')
     gbdt = GBDT(max_iter=20, sample_rate=0.8, learn_rate=0.5, max_depth=7, method_name='binary-classification')
     ids = datas.get_ids()
-    subset = sample(ids, int(len(ids)*0.2))
+    subset = sample(ids, max(2,int(len(ids)*0.2)))
     gbdt.fit(datas, ids)
     evaluate(gbdt, subset, datas)
